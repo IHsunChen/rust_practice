@@ -1,0 +1,13 @@
+[package]
+name = "git_clone"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.81"
+clap = { version = "4.5.3", features = ["derive"] }
+cstr = "0.2.11"
+flate2 = "1.0.28"
+
