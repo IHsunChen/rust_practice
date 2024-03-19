@@ -25,6 +25,10 @@ enum Command {
     },
 }
 
+enum Kind {
+    Blob,
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -40,35 +44,59 @@ fn main() -> anyhow::Result<()> {
             pretty_print,
             object_hash,
         } => {
-            let mut f = std::fs::File::open(format!(
-                ".git/object/{}/{}",
+            anyhow::ensure!(pretty_print, "mode must be given without -p, and we don't support mode.");
+            let f = std::fs::File::open(format!(
+                ".git/objects/{}/{}",
                 &object_hash[..2],
                 &object_hash[2..]
             ))
-            .context("opne in .git/objects")?;
-            let mut z = ZlibDecoder::new(f);
+            .context("open in .git/objects")?;
+            let z = ZlibDecoder::new(f);
             let mut z = BufReader::new(z);
             let mut buf = Vec::new();
+            // 讀取標頭
             z.read_until(0, &mut buf)
                 .context("read header from .git/objects")?;
-            let header = CStr::from_bytes_with_nul(&buf).expect("Know there is exactly one nuk, and it's at the end");
-            let header = header.to_str().context(".git/objects file header isn't valid UTF-8")?;
-            let Some(size) = header.strip_prefix("blob") else {
-                anyhow::bail!(".git/objects file header didn't start with 'blob ': '{header}'")
+
+            let header = CStr::from_bytes_with_nul(&buf)
+                .expect("Know there is exactly one nuk, and it's at the end");
+            let header = header
+                .to_str()
+                .context(".git/objects file header isn't valid UTF-8")?;
+            let Some((kind, size)) = header.split_once(' ') else {
+                anyhow::bail!(
+                    ".git/objects file header did not start with a known type: '{header}'"
+                );
             };
-            let size = size.parse::<usize>().context(
-                ".git/objects file header has valid size: {size}"
-            )?;
+
+            let kind = match kind {
+                "blob" => Kind::Blob,
+                _ => anyhow::bail!("we do not yet know how to print a {kind}"),
+            };
+
+            let size = size
+                .parse::<usize>()
+                .context(".git/objects file header has valid size: {size}")?;
             buf.clear();
             buf.resize(size, 0);
-            z.read_exact(&mut buf[..]).context("read true contents of .git/objects file");
-            let n = z.read(&mut [0]).context("validate EOF in .git/object file")?;
+            z.read_exact(&mut buf[..])
+                .context("read true contents of .git/objects file")?;
+            let n = z
+                .read(&mut [0])
+                .context("validate EOF in .git/object file")?;
 
             anyhow::ensure!(n == 0, ".git/object file had {n} trailing bytes");
 
             let mut stdout = std::io::stdout().lock();
-            stdout.write_all(&buf).context("write objects to stdout");
-        }   
+
+            match kind {
+                Kind::Blob => {
+                    stdout
+                        .write_all(&buf)
+                        .context("write object contents to stdout")?;
+                }
+            }
+        }
     }
     Ok(())
 }
